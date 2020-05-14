@@ -24,6 +24,17 @@ using BioSequences
 # Splicing is regulated mainly by RNA-binding proteins (RBPs)
 # RBPs often act according to positional principles defined by an RNA splicing map to enhance or repress exon inclusion  
 
+# sNRPS can
+# Bind to a splice site
+# "Help" another protein bind, e.g U2AF, when bound, helps (allows?) BBP to bind to branch site
+  # Q does it promote particular branch site?
+  # Q Constraints on branch site? A base? 
+# Replace another protein.  U2 Replaced BBP.  Then whats the point of BBP?
+# Change some state of the molecule (Adenine bulges out when bound to by U2)
+# "Recruit" other snRNPS
+# U6 pushed out U1 from branch site
+# When U6 tries to interact with U2 (U4) which are in the middle, is release
+# interaction of u6 and u2 can cause rna to split, and loop to form
 """
 A spliceosome is composed of five small nuclear RNAs (snRNA) and a range (around 150) of associated protein factors.
 snRNA is usually about 100-300 nucleotides in length
@@ -48,8 +59,10 @@ function splice(seq)
   boundaries(motifloc)
 end
 
+"""
+"""
 function matchmotifs(seq, motifs::AbstractVector{<:Motif})
-  motifloc = Dict{Int, Motif}
+  motifloc = Dict{Int, Motif} # Mapping from site to SRE bound to protein bound to that site
   n = length(seq)
   for i = 1:n
     for m in motifs
@@ -74,7 +87,9 @@ function converged(motifloc, state; n = 10)
   state > n, state + 1
 end
 
+
 function updateprobs!(motifloc)
+  # The presence of one splicesosome may inhibit or surpress others
   state = initconverged(motifloc)
   while !converged(motifloc, state)
     for i in motifloc
