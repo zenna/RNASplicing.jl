@@ -1,7 +1,7 @@
 module Library
 
 using BioSequences
-using ..RNASplicing: OpaqueTransElement, SQQ, Spliceosome, only
+using ..RNASplicing: OpaqueTransElement, Interaction, Spliceosome, only
 # The core splicing machinery can be expressed in this framework
 
 # # Core Machinery
@@ -12,12 +12,10 @@ donorsite = biore"(C|A)AG|GU(A|G)AGU"rna
 u1 = OpaqueTransElement(:u1)
 u2 = OpaqueTransElement(:u2)
 u2af = OpaqueTransElement(:u2af)
-e1 = SQQ(donorsite, [(only(u1), 0, 10.0)]) 
+e1 = Interaction(donorsite, [(only(u1), 0, 10.0)]) 
 coremachinery = [e1]
 
-acceptorsite = biore"(C|U)AG"rna.
-
-acceptsite(seq) = ..
+acceptsite = biore"A(C|U)AG"rna
 
 # # SREs
 

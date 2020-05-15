@@ -95,41 +95,31 @@ grun(seq) = occursin(biore"GGG+"rna, seq) ? 1.0 : 0.0
 # They are believed to be the main mechanism for alternative splcing.
 
 # We will model both the core machinery and SREs within the same framework.
-# We model SQQs as tuples of the form $(p, e)$, where $p$ is a pattern (described above)
+# We model Interactions as tuples of the form $(p, e)$, where $p$ is a pattern (described above)
 # and $e: \to \mathbb{R}$ is an effect -- a function that maps
 # The existance of a pattern can increase or decrease the binding energy
 
-struct SQQ{P, E}
+struct Interaction{P, E}
   pattern::P
   effects::E
-end
-
-"The energy of a configuration `bseq` assuming splicing regulary elements `sres`"
-function ℓ(bseq::BoundSeq, sqqs)
-  while !converged() # FIXME
-    for sqq in sqqs
-      sqq = 3
-    end
-  end
 end
 
 "Returns a protein extractor that returns the singleton `te` iff its in the splicesosome"
 only(te::T) where T = sos -> insos(te, sos) ? [te] : T[]
 
+"Initial probabilities for (TransElement, Position)"
 initT(sos::Spliceosome{T, R}, seq) where {T, R} = Dict{Tuple{T, Pos}, R}() 
 
+"Absolute position where pattern matched"
 matchpos(m::BioSequences.RE.RegexMatch) = m.captured[1]
 
 "Simulate one binding step"
-function step(rng, bseq, sos, sqqs)
-  # construct probabilities
+function step(rng, bseq, sos, intrs)
   T = initT(sos, bseq.seq)
 
-  # For each pattern match, update each (position, protein) probability that it effects
-  for sqq in sqqs
-    for x in eachmatch(sqq.pattern, bseq.seq)
-      @show matched(x) 
-      for (p, relpos, mul) in sqq.effects
+  for intr in intrs
+    for x in eachmatch(intr.pattern, bseq.seq)
+      for (p, relpos, mul) in intr.effects
         abspos = matchpos(x) + relpos
         for protein in p(sos)
           if (protein, abspos) ∉ keys(T)
@@ -140,32 +130,29 @@ function step(rng, bseq, sos, sqqs)
       end
     end
   end
-  @show T 
-  bseq
+  bseq = bind(rng, T, bseq)
+  maybesplice(bseq)
 end
+
+"Simulate a binding process"
+bind(rng, T, bseq) = ..
 
 # The splicosome can be simulated
 "Simulate the splicing"
-function splice(rng, bseq::BoundSeq, sos, sqqs; n = 1000)
+function splice(rng, bseq::BoundSeq, sos, intrs; n = 1000)
   for i = 1:n
-    bseq = step(rng, bseq, sos, sqqs)
+    bseq = step(rng, bseq, sos, intrs)
     bseq = maybesplice(bseq)
   end
   bseq
-  #FIXME: Might want introns too
 end
 
-splice(bseq, sos, sqqs) = splice(Random.GLOBAL_RNG, bseq, sos, sqqs)
-splice(rng, rnaseq::RNASequence, sos, sqqs) = splice(rng, BoundSeq(rnaseq), sos, sqqs)
+splice(bseq, sos, intrs) = splice(Random.GLOBAL_RNG, bseq, sos, intrs)
+splice(rng, rnaseq::RNASequence, sos, intrs) = splice(rng, BoundSeq(rnaseq), sos, intrs)
 
-"Simulate core splicing machinery"
-function maybesplice(bseq)
-  bseq   # Check for presence of u1 and u2
-end
+"Simulate core splicing machinery -- checks for presence of u1 and u2"
+maybesplice(bseq) = bseq
 
-"Stochastic optimization to find stable (energetically minimal wrt ℓ) configuration of binding"
-function stableconfig(rng, ℓ, bseq, sos)
-end
 
 # Model
 # A splicing round occurs when U1 and U2AF proteins reach a global minimum
@@ -180,10 +167,8 @@ end
 function sequence(rng, seq, n)
   sequences = RNASequence[]
 
-  # Distribution over start point
   splice_start(rng) = uniform(rng, 1:length(seq))
 
-  # Distribution over length
   splce_length(rng) = uniform(rng, 1:100)
 
   for i = 1:n
