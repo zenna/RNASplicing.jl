@@ -18,7 +18,7 @@
 # nuclear ribonuclear proteins (snRNP).  Trans elements perform splicing by binding to the RNA
 # in a sytematic fashion.
 
-using BioSequences
+using BioSequences, Random
 
 "A Trans-Element / Factor: Proten or snRNP that can bind to primanry RNA transcript"
 abstract type TransElement end
@@ -40,8 +40,15 @@ struct Spliceosome{T <: TransElement, R <: Real}
   elems::Dict{T, R}   # Maps from transelement to its concentration in spliceosome
 end
 
+"Is transelement `te` in the splicesosome?"
+insos(te, sos::Spliceosome) = te in keys(sos.elems)
+# Spliceosome(elems::Dict{T, R}) where {T, R} = Spliceosome{T, R}(elems)
+
 "concentration of transelement `te` in spliceosome `so`"
-concentration(so, te) = so.elems[te]
+concentration(sos, te) = sos.elems[te]
+
+"Number of trans-elements in splicesosome"
+ntranselems(sos::Spliceosome) = length(sos.elems)
 
 # The __primary transcript__ is a sequence of RNA to be spliced by the spliceosome
 const RNASequence = BioSequence{RNAAlphabet{4}}
@@ -49,11 +56,17 @@ const RNASequence = BioSequence{RNAAlphabet{4}}
 # Trans-elements can bind to sequences in primary transcript.
 # The following data structure represents a transcript bound with any number of trans-elements:
 
+# Position -- Natural number 1:length(seq)
+const Pos = Int
+
 "Primary transcript with tran-elements bound to it"
 struct BoundSeq{T <: TransElement}
-  seq::RNASequence                        # Primary transcriipt
-  binds::Vector{Tuple{Int, T}} # position -> transelement bound at that position
+  seq::RNASequence             # Primary transcriipt
+  binds::Vector{Tuple{Pos, T}} # position -> transelement bound at that position
 end
+
+BoundSeq(seq::RNASequence, ::Type{T} = TransElement) where T =
+  BoundSeq(seq, Tuple{Pos, T}[])
 
 # Each bound sequence `bseq` has an associated energy `ℓ(bseq)`
 # We assume that ℓ has a particular structure: proteins bound to particular sites on
@@ -69,9 +82,9 @@ end
 "Does `seq` have a sequence of at least three Gs?"
 grun(seq) = occursin(biore"GGG+"rna, seq) ? 1.0 : 0.0
 
-# Splicing literature makes a distinction between the core splicing machinary
+# Splicing literature makes a distinction between the core splicing machinery
 # and __splicing regulary elements__.
-# The core splicing machinary is carried out by the __major splicesosome__, which
+# The core splicing machinery is carried out by the __major splicesosome__, which
 # consists of exactly 5 rnSNAs and around 150 proteins, which combine to make
 # 5 rnSNPs: U1, U2, U4, U5, U6.
 # The core splicing mechanism is an ordered, stepwise assembly of discrete snRNP particles
@@ -88,15 +101,8 @@ grun(seq) = occursin(biore"GGG+"rna, seq) ? 1.0 : 0.0
 
 struct SQQ{P, E}
   pattern::P
-  effect::E
+  effects::E
 end
-
-# The core splicing machinary can be expressed in this framework
-
-"5’ splice site - 9-nucleotide motif that generally conforms to the sequence"
-donorsite(seq) = occursin(biore"(C|A)AG|GU(A|G)AGU"rna, seq) ? 1.0 : 0.0
-const e1 = SQQ(donorsite, Dict(OpaqueTransElement(:u1) => 0.1)) 
-const coremachinary = [e1]
 
 "The energy of a configuration `bseq` assuming splicing regulary elements `sres`"
 function ℓ(bseq::BoundSeq, sqqs)
@@ -107,24 +113,58 @@ function ℓ(bseq::BoundSeq, sqqs)
   end
 end
 
+"Returns a protein extractor that returns the singleton `te` iff its in the splicesosome"
+only(te::T) where T = sos -> insos(te, sos) ? [te] : T[]
+
+initT(sos::Spliceosome{T, R}, seq) where {T, R} = Dict{Tuple{T, Pos}, R}() 
+
+matchpos(m::BioSequences.RE.RegexMatch) = m.captured[1]
+
+"Simulate one binding step"
+function step(rng, bseq, sos, sqqs)
+  # construct probabilities
+  T = initT(sos, bseq.seq)
+
+  # For each pattern match, update each (position, protein) probability that it effects
+  for sqq in sqqs
+    for x in eachmatch(sqq.pattern, bseq.seq)
+      @show matched(x) 
+      for (p, relpos, mul) in sqq.effects
+        abspos = matchpos(x) + relpos
+        for protein in p(sos)
+          if (protein, abspos) ∉ keys(T)
+            T[protein, abspos] = 1.0
+          end
+          T[protein, abspos] *= mul
+        end
+      end
+    end
+  end
+  @show T 
+  bseq
+end
+
 # The splicosome can be simulated
 "Simulate the splicing"
-function simsplice(rng, bseq, so)
-  while !converged()
-    bseq = stableconfig(rng, ℓ, bseq, so)
+function splice(rng, bseq::BoundSeq, sos, sqqs; n = 1000)
+  for i = 1:n
+    bseq = step(rng, bseq, sos, sqqs)
     bseq = maybesplice(bseq)
   end
   bseq
   #FIXME: Might want introns too
 end
 
-"Simulate core splicing machinary"
+splice(bseq, sos, sqqs) = splice(Random.GLOBAL_RNG, bseq, sos, sqqs)
+splice(rng, rnaseq::RNASequence, sos, sqqs) = splice(rng, BoundSeq(rnaseq), sos, sqqs)
+
+"Simulate core splicing machinery"
 function maybesplice(bseq)
   bseq   # Check for presence of u1 and u2
 end
 
 "Stochastic optimization to find stable (energetically minimal wrt ℓ) configuration of binding"
-function stableconfig(rng, ℓ, bseq, so)
+function stableconfig(rng, ℓ, bseq, sos)
 end
 
 # Model
