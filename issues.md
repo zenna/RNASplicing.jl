@@ -7,7 +7,7 @@ For this reaosn, it makes sense to have the `effect` be in terms of a position _
 
 It's unclear to me whether patterns always unambiguously have a position where they match.
 
-## Pattern interation
+## Pattern iteration
 Currently we are iterating through each match of a pattern.
 I worry this will create too many matches.
 For instance consider the G-run, which matches any sequence of at least three Gs.

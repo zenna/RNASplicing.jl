@@ -72,16 +72,7 @@ BoundSeq(seq::RNASequence, ::Type{T} = TransElement) where T =
 # We assume that ℓ has a particular structure: proteins bound to particular sites on
 # the primary transcript modulate the energy function locally
 
-# A pattern (or motif) is a property of an RNA sequence.
-# We assume that the extent to which a pattern has occured is graded.
-# Formally a pattern is a function from a subsequence to the unit interval, where
-# p(seq) = 1 indicates a perfect match and p(seq) = 0 indicates no match at all.
-
-# An example of a hard pattern is a G-run, a sequence of Gs:
-
-"Does `seq` have a sequence of at least three Gs?"
-grun(seq) = occursin(biore"GGG+"rna, seq) ? 1.0 : 0.0
-
+# ### Interactions 
 # Splicing literature makes a distinction between the core splicing machinery
 # and __splicing regulary elements__.
 # The core splicing machinery is carried out by the __major splicesosome__, which
@@ -95,14 +86,31 @@ grun(seq) = occursin(biore"GGG+"rna, seq) ? 1.0 : 0.0
 # They are believed to be the main mechanism for alternative splcing.
 
 # We will model both the core machinery and SREs within the same framework.
-# We model Interactions as tuples of the form $(p, e)$, where $p$ is a pattern (described above)
-# and $e: \to \mathbb{R}$ is an effect -- a function that maps
-# The existance of a pattern can increase or decrease the binding energy
+# We model Interactions as tuples of the form $(p, e)$, where $p$ is a __pattern__ (described above)
+# and $e is a set of __effects__:
 
 struct Interaction{P, E}
   pattern::P
   effects::E
 end
+
+# #### Patterns
+
+# A pattern (or motif) is a property of an RNA sequence.
+# Formally a pattern is a set of strings, i.e., a language.
+# For instance, a g-run is the set of strings $\{G, GG, GGG, GGGG, GGGGG, \dots\}$.
+# A pattern $p$ __matches__ a string $s$ if any element of $p$ is a subsequence of $s$.
+
+# We assume that the extent to which a pattern has occured is graded.
+# A __pattern weight function__ maps patterns to a non-negative Real number, denoting the degree to which it has matched.
+# p(seq) = 1 indicates a perfect match and p(seq) = 0 indicates no match at all.
+
+# #### EFfects
+
+# An effect $E \subseteq TransElements \times Position \times \mathbb{R}$ is a ternary relation:
+# a set of tuples of the form $(t, l, f)$, where $t$ is a transelement, $l$ is an integer valued location, and $f$ is a factor.
+# Informally,. the semantics of an interaction $(p, \{(t_1, l_1, f_1), (t_2, l_2, f_2), \dots\}$.
+# are that if a pattern $p$ is found, then the probability that transelement $t_i$ will bind to position $p_i$ is increated (or decreased) multiplically by factor $f_i$
 
 "Returns a protein extractor that returns the singleton `te` iff its in the splicesosome"
 only(te::T) where T = sos -> insos(te, sos) ? [te] : T[]
@@ -163,7 +171,7 @@ maybesplice(bseq) = bseq
 # The following model of sequencing assumes that from a given `rna`, `n` (possibly differing, due to alternative splicing) mRNAs
 # are produced, and the sequencing measures a single sunsequence (of random length) from each
 
-"Sequence rng process"
+"Sequence RNA process"
 function sequence(rng, seq, n)
   sequences = RNASequence[]
 
