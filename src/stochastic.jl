@@ -3,19 +3,22 @@
 # ## Overview
 # Slicing is a process by which subsequences of preRNA (called introns, by definition) are removed.
 # The remaining subsequences (called exons) are rejoined together.
-# The resulting RNA sequence with introns removed is called mature RNA (mRNA)
+# The resulting RNA sequence with introns removed is called mature RNA (mRNA).
 
-# The splicing process is stochastic.  Given a preRNA sequence, there is a
+# The splicing process is often stochastic.  Given a preRNA sequence, there is a
 # distribution over corresponding mRNA sequences.
-# Sources of stochasticity:
-# - Structure: RNA modifications /bulged nucleotides make pairing of rNA and snRNPs variable
+# As is almost always the case, the stochasticity results from incomplete information.
+# Sources of uncertainty:
+# - Structure: RNA modifications / bulged nucleotides make pairing of rNA and snRNPs variable.
 # - Mutation: Single nucleotide variation (Q: At what point do mutations happen?)
-# - Composition: Variability in RNA-Binding Protein concentrations of cell
+# - Spliceosome composition: Variability in RNA-Binding Protein concentrations of cell
 
 # ## Model
 
-# Trans-elements are small nucleus RNA, proteins and their combination called small-
-# nuclear ribonuclear proteins (snRNP).  Trans elements perform splicing by binding to the RNA
+# At a high level, this is an abstract biophysical model that simulates splicing using a discrete-time simulation.
+
+# __Trans-elements__ are small nucleus RNA, proteins and their combination called small- nuclear
+# ribonuclear proteins (snRNP).  Trans elements perform splicing by binding to the RNA
 # in a sytematic fashion.
 
 using BioSequences, Random
@@ -23,8 +26,8 @@ using BioSequences, Random
 "A Trans-Element / Factor: Proten or snRNP that can bind to primanry RNA transcript"
 abstract type TransElement end
 
-# There are many properties of a trans element that may affect its role in splicing.
-# The simplest representation associated a transelement only with a name:
+# There are many properties of a trans-element that may affect its role in splicing.
+# The simplest representation associates a transelement only with a name:
 
 "Symbolic TransElement -- represents only its name"
 struct OpaqueTransElement <: TransElement
@@ -38,9 +41,10 @@ end
 "Collection of transelements at different concentrations"
 struct Spliceosome{T <: TransElement, R <: Real}
   elems::Dict{T, R}   # Maps from transelement to its concentration in spliceosome
+  # FIXME: Ensure concentratios are normalized
 end
 
-"Is transelement `te` in the splicesosome?"
+"Is transelement `te` in the splicesosome `sos`?"
 insos(te, sos::Spliceosome) = te in keys(sos.elems)
 # Spliceosome(elems::Dict{T, R}) where {T, R} = Spliceosome{T, R}(elems)
 
@@ -54,9 +58,9 @@ ntranselems(sos::Spliceosome) = length(sos.elems)
 const RNASequence = BioSequence{RNAAlphabet{4}}
 
 # Trans-elements can bind to sequences in primary transcript.
-# The following data structure represents a transcript bound with any number of trans-elements:
+# A __bound sequence__ or transcript is a primary transcript with any number of trans-elements bound to it.
 
-# Position -- Natural number 1:length(seq)
+"Position -- Natural number 1:length(seq)"
 const Pos = Int
 
 "Primary transcript with tran-elements bound to it"
@@ -67,10 +71,6 @@ end
 
 BoundSeq(seq::RNASequence, ::Type{T} = TransElement) where T =
   BoundSeq(seq, Tuple{Pos, T}[])
-
-# Each bound sequence `bseq` has an associated energy `ℓ(bseq)`
-# We assume that ℓ has a particular structure: proteins bound to particular sites on
-# the primary transcript modulate the energy function locally
 
 # ### Interactions 
 # Splicing literature makes a distinction between the core splicing machinery
@@ -86,12 +86,14 @@ BoundSeq(seq::RNASequence, ::Type{T} = TransElement) where T =
 # They are believed to be the main mechanism for alternative splcing.
 
 # We will model both the core machinery and SREs within the same framework.
-# We model Interactions as tuples of the form $(p, e)$, where $p$ is a __pattern__ (described above)
-# and $e is a set of __effects__:
+# We model Interactions as tuples of the form $(p, e)$, where $p$ is a __pattern__ (described below)
+# and $e$ is a set of __effects__:
 
-struct Interaction{P, E}
+struct Interaction{P, TE, F}
   pattern::P
-  effects::E
+  te::TE
+  loc::Pos
+  factor::F
 end
 
 # #### Patterns
@@ -102,15 +104,15 @@ end
 # A pattern $p$ __matches__ a string $s$ if any element of $p$ is a subsequence of $s$.
 
 # We assume that the extent to which a pattern has occured is graded.
-# A __pattern weight function__ maps patterns to a non-negative Real number, denoting the degree to which it has matched.
+# A __pattern weight function__ maps patterns to a non-negative real number, denoting the degree to which it has matched.
 # p(seq) = 1 indicates a perfect match and p(seq) = 0 indicates no match at all.
 
 # #### EFfects
 
-# An effect $E \subseteq TransElements \times Position \times \mathbb{R}$ is a ternary relation:
+# An effect $E \subseteq \textrm{TransElements} \times \textrm{Location} \times \mathbb{R}$ is a ternary relation:
 # a set of tuples of the form $(t, l, f)$, where $t$ is a transelement, $l$ is an integer valued location, and $f$ is a factor.
-# Informally,. the semantics of an interaction $(p, \{(t_1, l_1, f_1), (t_2, l_2, f_2), \dots\}$.
-# are that if a pattern $p$ is found, then the probability that transelement $t_i$ will bind to position $p_i$ is increated (or decreased) multiplically by factor $f_i$
+# Informally, the semantics of an interaction $(p, \{(t_1, l_1, f_1), (t_2, l_2, f_2), \dots\})$.
+# are that if a pattern $p$ is found, then the probability that transelement $t_i$ will bind to location $l_i$ is increated (or decreased) multiplicatively by factor $f_i$.
 
 "Returns a protein extractor that returns the singleton `te` iff its in the splicesosome"
 only(te::T) where T = sos -> insos(te, sos) ? [te] : T[]
@@ -125,27 +127,37 @@ matchpos(m::BioSequences.RE.RegexMatch) = m.captured[1]
 function step(rng, bseq, sos, intrs)
   T = initT(sos, bseq.seq)
 
+  # For each interaction
   for intr in intrs
+    # and for each match of the interaction's pattern
     for x in eachmatch(intr.pattern, bseq.seq)
-      for (p, relpos, mul) in intr.effects
-        abspos = matchpos(x) + relpos
-        for protein in p(sos)
-          if (protein, abspos) ∉ keys(T)
-            T[protein, abspos] = 1.0
-          end
-          T[protein, abspos] *= mul
+      # For each  
+      abspos = matchpos(x) + intr.loc
+      for protein in intr.te(sos)
+        if (protein, abspos) ∉ keys(T)
+          T[protein, abspos] = 1.0
         end
+        T[protein, abspos] *= intr.factor
       end
     end
   end
-  bseq = bind(rng, T, bseq)
+  bseq = bind(rng, T, bseq, sos)
   maybesplice(bseq)
 end
 
 "Simulate a binding process"
-bind(rng, T, bseq) = ..
+function bind(rng, T, bseq, sos)
+  @show T
+  # Select transelement with probability proportional to concentration
+  # bseq
 
-# The splicosome can be simulated
+  # How 
+end
+
+"Simulate core splicing machinery -- checks for presence of u1 and u2"
+maybesplice(bseq) = bseq
+
+# The splicosome is then simulated by simply repeating this process until some criterion of convergence is me
 "Simulate the splicing"
 function splice(rng, bseq::BoundSeq, sos, intrs; n = 1000)
   for i = 1:n
@@ -157,10 +169,6 @@ end
 
 splice(bseq, sos, intrs) = splice(Random.GLOBAL_RNG, bseq, sos, intrs)
 splice(rng, rnaseq::RNASequence, sos, intrs) = splice(rng, BoundSeq(rnaseq), sos, intrs)
-
-"Simulate core splicing machinery -- checks for presence of u1 and u2"
-maybesplice(bseq) = bseq
-
 
 # Model
 # A splicing round occurs when U1 and U2AF proteins reach a global minimum

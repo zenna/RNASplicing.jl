@@ -12,7 +12,7 @@ donorsite = biore"(C|A)AG|GU(A|G)AGU"rna
 u1 = OpaqueTransElement(:u1)
 u2 = OpaqueTransElement(:u2)
 u2af = OpaqueTransElement(:u2af)
-e1 = Interaction(donorsite, [(only(u1), 0, 10.0)]) 
+e1 = Interaction(donorsite, only(u1), 0, 10.0) 
 coremachinery = [e1]
 
 acceptsite = biore"A(C|U)AG"rna
